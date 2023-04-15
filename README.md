@@ -229,3 +229,191 @@ def drive(cfg, model_path=None, use_joystick=False):
 Replace get_raw_lidar_data() with a function that obtains the raw LIDAR data from your specific sensor.
 
 With these changes, the raw LIDAR data will be preprocessed into a 2D image format before being fed into the neural network. Make sure to adjust the code to fit your specific LIDAR sensor, preprocessing requirements, and neural network architecture.
+
+## diff patch
+Sure! Here's a git diff patch that includes the modifications to donkeycar/parts/keras.py, donkeycar/parts/lidar.py, and manage.py to add support for LIDAR data:
+
+```
+diff --git a/donkeycar/parts/keras.py b/donkeycar/parts/keras.py
+index 03973b6..f41d7f2 100644
+--- a/donkeycar/parts/keras.py
++++ b/donkeycar/parts/keras.py
+@@ -72,3 +72,27 @@ class KerasCategorical(KerasPilot):
+             throttle[0][0])
+         return angle_unbinned, throttle[0][0]
+ 
++
++def default_categorical_lidar(img_in, lidar_in, num_outputs):
++    # Camera branch
++    x = Conv2D(24, (5, 5), strides=(2, 2), activation='relu')(img_in)
++    x = Conv2D(32, (5, 5), strides=(2, 2), activation='relu')(x)
++    x = Conv2D(64, (5, 5), strides=(2, 2), activation='relu')(x)
++    x = Conv2D(64, (3, 3), strides=(2, 2), activation='relu')(x)
++    x = Conv2D(64, (3, 3), strides=(1, 1), activation='relu')(x)
++    x = Flatten(name='flattened')(x)
++    x = Dense(100, activation='linear')(x)
++    x = Dropout(.1)(x)
++    x = Dense(50, activation='linear')(x)
++    x = Dropout(.1)(x)
++    camera_branch = Dense(10, activation='linear')(x)
++
++    # LIDAR branch
++    y = Conv2D(16, (3, 3), activation='relu')(lidar_in)
++    y = MaxPooling2D((2, 2))(y)
++    y = Conv2D(32, (3, 3), activation='relu')(y)
++    y = MaxPooling2D((2, 2))(y)
++    y = Flatten()(y)
++    y = Dense(64, activation='relu')(y)
++    lidar_branch = Dense(10, activation='relu')(y)
++
++    # Combine branches
++    combined = Concatenate()([camera_branch, lidar_branch])
++    z = Dense(50, activation='relu')(combined)
++    z = Dropout(.2)(z)
++    outputs = Dense(num_outputs, activation='softmax', name='model_outputs')(z)
++    return outputs
+diff --git a/donkeycar/parts/lidar.py b/donkeycar/parts/lidar.py
+index e69de29..d0ee0b7 100644
+--- a/donkeycar/parts/lidar.py
++++ b/donkeycar/parts/lidar.py
+@@ -0,0 +1,10 @@
++import numpy as np
++
++class LidarProcessor:
++    def __init__(self, lidar_h, lidar_w):
++        self.lidar_h = lidar_h
++        self.lidar_w = lidar_w
++
++    def process(self, raw_lidar_data):
++        # Convert raw LIDAR data to a 2D image
++        # This is just an example, and you should replace it with your specific conversion method
++        lidar_image = np.zeros((self.lidar_h, self
+
+diff --git a/manage.py b/manage.py
+index 1dbb55e..c6c9e6f 100644
+--- a/manage.py
++++ b/manage.py
+@@ -44,6 +44,7 @@ def drive(cfg, model_path=None, use_joystick=False):
+     if model_type == "categorical":
+         kl = KerasCategorical(input_shape, num_outputs)
+     elif model_type == "categorical_imu":
++        # Add support for IMU data
+         kl = KerasCategoricalIMU(input_shape, num_outputs)
+     elif model_type == "categorical_pc":
+         kl = KerasCategoricalPC(input_shape, num_outputs)
+@@ -51,9 +52,22 @@ def drive(cfg, model_path=None, use_joystick=False):
+     elif model_type == "rnn":
+         kl = KerasRNN_LSTM(input_shape, num_outputs)
+     elif model_type == "imu_rnn":
++        # Add support for IMU data
+         kl = KerasRNN_LSTM_IMU(input_shape, num_outputs)
++    elif model_type == "categorical_lidar":
++        # Add support for LIDAR data
++        lidar_shape = (cfg.LIDAR_H, cfg.LIDAR_W, cfg.LIDAR_DEPTH)
++        kl = KerasCategoricalLidar(input_shape, lidar_shape, num_outputs)
++    else:
++        print("Unknown model type: ", model_type)
++        return
+ 
+     # load keras model
++    # ...
++
++    # Add support for LIDAR data
++    if model_type == "categorical_lidar":
++        lidar_processor = LidarProcessor(cfg.LIDAR_H, cfg.LIDAR_W)
++
+     # drive train loop
+     dataset = TubDataset(cfg.DATA_PATH)
+     gen = batch_generator(dataset, cfg, ['user/angle', 'user/throttle'], 'train')
+@@ -75,6 +89,14 @@ def drive(cfg, model_path=None, use_joystick=False):
+             angle_unbinned, throttle[0][0])
+         return angle_unbinned, throttle[0][0]
+ 
++    # Modify drive loop to preprocess LIDAR data
++    def drive_loop_with_lidar():
++        while True:
++            img_arr, lidar_data = get_image_lidar_data()  # Replace with function to get camera and LIDAR data
++            lidar_image = lidar_processor.process(lidar_data)  # Preprocess LIDAR data
++            angle, throttle = kl.run(img_arr, lidar_image)
++            user_angle, user_throttle = user_input()
++
+     # run the driving loop
+     try:
+         if use_joystick:
+@@ -82,11 +104,10 @@ def drive(cfg, model_path=None, use_joystick=False):
+         else:
+             print("You can now go to <your pi ip address>:8887 to drive your car.")
+ 
+-        while True:
+-            img_arr = None
+-            if model_type == "categorical_lidar":
+-                img_arr, lidar_data = get_image_lidar_data() # Replace with function to get camera and LIDAR data
+-            else:
++        if model_type == "categorical_lidar":
++            # Use the modified drive loop that supports LIDAR data
++            drive_loop = drive_loop_with_lidar
++        else:
+             drive_loop = drive_loop_basic
+ 
+         drive_loop()
+diff --git a/manage.py b/manage.py
+index c6c9e6f..777b399 100644
+
+diff --git a/manage.py b/manage.py
+index 777b399..af51a92 100644
+--- a/manage.py
++++ b/manage.py
+@@ -29,6 +29,7 @@ from donkeycar.parts.controller import LocalWebController
+ from donkeycar.parts.actuator import PCA9685, PWMSteering, PWMThrottle
+ from donkeycar.parts.camera import PiCamera
+ from donkeycar.parts.keras import KerasCategorical, KerasLinear, KerasIMU
++from donkeycar.parts.keras import KerasCategoricalLidar
+ from donkeycar.parts.lidar import RPLidar
+ from donkeycar.parts.transform import Lambda, LIDAR_EMBEDDING_SIZE
+ from donkeycar.parts.datastore import TubHandler, TubWriter
+@@ -52,6 +53,8 @@ def drive(cfg, model_path=None, use_joystick=False):
+         kl = KerasCategorical(input_shape, num_outputs)
+     elif model_type == "categorical_imu":
+         kl = KerasCategoricalIMU(input_shape, num_outputs)
++    elif model_type == "categorical_lidar":
++        kl = KerasCategoricalLidar(input_shape, lidar_shape, num_outputs)
+     elif model_type == "linear":
+         kl = KerasLinear(input_shape, num_outputs)
+     elif model_type == "imu":
+@@ -68,7 +71,7 @@ def drive(cfg, model_path=None, use_joystick=False):
+     # Add support for LIDAR data
+     if model_type == "categorical_lidar":
+         lidar_processor = LidarProcessor(cfg.LIDAR_H, cfg.LIDAR_W)
+-    elif model_type == "rnn" or model_type == "imu_rnn":
++    elif model_type == "rnn" or model_type == "imu_rnn" or model_type == "categorical_lidar":
+         embedding = Lambda(lambda x: x / 255.0)(lidar_input)
+         embedding = Conv2D(24, (5, 5), strides=(2, 2), activation='relu')(embedding)
+         embedding = Conv2D(32, (5, 5), strides=(2, 2), activation='relu')(embedding)
+@@ -76,11 +79,7 @@ def drive(cfg, model_path=None, use_joystick=False):
+         embedding = Flatten()(embedding)
+         lidar_branch = Dense(LIDAR_EMBEDDING_SIZE, activation='linear')(embedding)
+ 
+-    # load keras model
+-    model = keras.models.load_model(model_path)
+-
+-    # Add support for LIDAR data
+-    if model_type == "categorical_lidar":
++    if model_path:
+         model = keras.models.load_model(model_path)
+         # override the output layer with the new size
+         model.pop()
+@@ -97,6 +96,8 @@ def drive(cfg, model_path=None, use_joystick=False):
+         throttle_controller = PCA9685(cfg.PWM_THROTTLE_PIN)
+         throttle = PWMThrottle(controller=throttle_controller,
+                                max_pulse=cfg.PWM_THROTTLE_MAX,
+-                               zero_pulse=cfg.PWM_THROTTLE_ZERO, min_pulse=cfg.PWM_THROTTLE_MIN)
++                               zero_pulse=cfg.PWM_THROTTLE_ZERO,
++                               min_pulse=cfg.PWM_THROTTLE_MIN)
++    # ...
+ 
+     # start the pilot
+     if use_joystick:
+@@ -123,7 +124,9 @@ def drive(cfg, model_path=None, use_joystick=False):
+                 lidar_image = lidar_processor.process(lidar
+
+```
