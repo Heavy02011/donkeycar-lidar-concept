@@ -19,7 +19,7 @@ Evaluation and Testing: Evaluate the performance of your model using a validatio
 By incorporating LIDAR data into your end-to-end training process, you can potentially improve the performance and robustness of your autonomous driving system. Keep in mind that integrating LIDAR data might require additional computational resources and could increase the complexity of your model, so it's important to balance the benefits with the potential drawbacks.
 
 
-##concept
+## concept
 Assuming you already have a LIDAR sensor and have collected LIDAR data, here's a step-by-step guide on integrating the LIDAR data into your autonomous vehicle's training pipeline:
 
 Synchronization: Synchronize the LIDAR data with the camera images. Ensure that each camera image has a corresponding LIDAR scan with accurate timestamp matching. This is important for training a model that can use both sources of data effectively.
@@ -91,7 +91,7 @@ This example creates a multi-modal neural network with two separate branches for
 
 Before using this code, preprocess your LIDAR and camera data, and split them into training and validation sets. Then, you can train the model using model.fit() with the preprocessed data.
 
-##proposal
+## code changes
 To accommodate your request, I will extend the existing functions and classes instead of overwriting them. Here is the updated solution:
 
 1. In donkeycar/parts/keras.py, add a new function default_categorical_lidar for the multi-modal architecture:
